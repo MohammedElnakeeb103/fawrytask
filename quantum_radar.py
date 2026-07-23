@@ -1,37 +1,3 @@
-"""
-============================================================================
-QuRadar - Quantum Traffic Radar System (Python version)
-============================================================================
-This module models a smart traffic radar unit that receives observations
-from a physical roadside radar/camera device (plate number, date, car
-type, measured speed, and seatbelt status) and evaluates them against a
-configurable, pluggable set of traffic rules (ViolationRule).
-
-AI model used: the physical radar's raw sensor stream (video/LIDAR) is
-assumed to be pre-processed by an ANPR (Automatic Number Plate
-Recognition) pipeline based on a YOLOv8 object-detection model (to locate
-and classify the vehicle as Private/Truck/Bus and to locate the driver
-region) combined with a CRNN (Convolutional Recurrent Neural Network) +
-CTC-decoder OCR model that reads the plate characters. A lightweight CNN
-image classifier is used to detect whether the seatbelt is fastened from
-the cropped driver-seat region. QuRadar itself does not run this AI model;
-it only consumes the already-structured output (RadarObservation) that
-these models produce, keeping the rule-evaluation logic independent from
-the perception layer.
-
-Design notes (extensibility):
-- QuRadar is completely decoupled from the concrete traffic rules. It only
-  depends on the ViolationRule interface (an abstract base class here).
-- New rules (e.g. "motorcycle must not exceed 50", "no phone usage", ...)
-  can be added by simply creating a new class that implements
-  ViolationRule and registering an instance with QuRadar - no change to
-  QuRadar's source code is required (Open/Closed Principle).
-- Each observation can trigger zero or more violations; each violation
-  carries its own fine amount, and QuRadar aggregates them into a single
-  Fine per observation.
-============================================================================
-"""
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date
@@ -40,7 +6,6 @@ from typing import Optional, List, Dict
 
 
 class CarType(Enum):
-    """The type of vehicle detected by the radar's perception model."""
     PRIVATE = "Private"
     TRUCK = "Truck"
     BUS = "Bus"
@@ -48,8 +13,6 @@ class CarType(Enum):
 
 @dataclass(frozen=True)
 class RadarObservation:
-    """Raw structured data produced by the physical radar device / its AI
-    perception pipeline for a single passing vehicle."""
     plate_number: str
     obs_date: date
     car_type: CarType
@@ -59,29 +22,22 @@ class RadarObservation:
 
 @dataclass(frozen=True)
 class Violation:
-    """A single rule violation with its human-readable description and fee."""
     description: str
     fee: float
 
 
 class ViolationRule(ABC):
-    """Contract every traffic rule must implement. QuRadar only ever talks
-    to this interface, so adding a new rule never requires touching QuRadar."""
-
     @property
     @abstractmethod
     def rule_name(self) -> str:
-        """A short unique name used for reporting violated-rule counts."""
         raise NotImplementedError
 
     @abstractmethod
     def evaluate(self, observation: RadarObservation) -> Optional[Violation]:
-        """Returns a Violation if the observation breaks this rule, else None."""
         raise NotImplementedError
 
 
 class SeatbeltRule(ViolationRule):
-    """Rule: seatbelt must be fastened, regardless of car type."""
     FEE = 100
 
     @property
@@ -95,10 +51,6 @@ class SeatbeltRule(ViolationRule):
 
 
 class SpeedLimitRule(ViolationRule):
-    """Generic speed-limit rule for a given car type. New speed limits (or
-    new car types) can be introduced just by instantiating this class again
-    with different parameters - no code change needed elsewhere."""
-
     def __init__(self, car_type: CarType, max_speed: int, fee: float):
         self.car_type = car_type
         self.max_speed = max_speed
@@ -117,16 +69,12 @@ class SpeedLimitRule(ViolationRule):
 
 @dataclass
 class Fine:
-    """The aggregated result of all violations found for one observation."""
     plate_number: str
     total_amount: float
     violations: List[Violation] = field(default_factory=list)
 
 
 class QuRadar:
-    """QuRadar - see module docstring for the full system description.
-    Holds a pluggable list of ViolationRule instances and evaluates each
-    incoming RadarObservation against all of them."""
 
     def __init__(self, rules: List[ViolationRule]):
         self._rules: List[ViolationRule] = list(rules)
@@ -189,9 +137,6 @@ def main() -> None:
     ]
 
     radar = QuRadar(rules)
-
-    # Example: adding a brand new rule at runtime, no QuRadar changes needed
-    # radar.add_rule(SpeedLimitRule(CarType.BUS, 70, 250))
 
     observations = [
         RadarObservation("ABC1234", date.today(), CarType.PRIVATE, 94, False),
